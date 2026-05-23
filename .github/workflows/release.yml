@@ -30,9 +30,9 @@ jobs:
         with:
           go-version: stable
 
-      - name: Fetch the new tag
+      - name: Tag HEAD locally so GoReleaser sees it
         if: steps.tag.outputs.new_tag
-        run: git fetch --tags --force
+        run: git tag ${{ steps.tag.outputs.new_tag }}
 
       - name: Run GoReleaser
         if: steps.tag.outputs.new_tag
