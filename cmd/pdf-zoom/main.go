@@ -53,7 +53,8 @@ func main() {
 		bboxFlag = flag.String("bbox", "0,0,1,1", "Region as x0,y0,x1,y1 normalized to page (bottom-left origin). Default = full page.")
 		dpi      = flag.Int("dpi", 300, "Render DPI.")
 		imageOut = flag.String("output-image", "./zoom.png", "Output image path.")
-		textOut  = flag.String("output-text", "-", "Text JSON output path, or '-' for stdout.")
+		textOut  = flag.String("output-text", "-", "Text output path, or '-' for stdout.")
+		plain    = flag.Bool("plain", false, "Emit text output as a compact plain format (one header line + one rect per line) instead of JSON.")
 	)
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage: pdf-zoom --page N [--bbox x0,y0,x1,y1] [flags] <pdf-path>\n\n")
@@ -95,8 +96,8 @@ func main() {
 		die(fmt.Sprintf("write image: %v", err))
 	}
 
-	if err := writeJSON(*textOut, buildOutput(pdfPath, *page, *dpi, res)); err != nil {
-		die(fmt.Sprintf("write text JSON: %v", err))
+	if err := writeText(*textOut, buildOutput(pdfPath, *page, *dpi, res), *plain); err != nil {
+		die(fmt.Sprintf("write text: %v", err))
 	}
 }
 
@@ -128,7 +129,7 @@ func writePNG(path string, res *pdfx.Result) error {
 	return png.Encode(f, res.Image)
 }
 
-func writeJSON(target string, payload output) error {
+func writeText(target string, payload output, plain bool) error {
 	var w io.Writer = os.Stdout
 	if target != "-" {
 		f, err := os.Create(target)
@@ -138,10 +139,54 @@ func writeJSON(target string, payload output) error {
 		defer f.Close()
 		w = f
 	}
+	if plain {
+		return writePlain(w, payload)
+	}
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	enc.SetEscapeHTML(false)
 	return enc.Encode(payload)
+}
+
+// writePlain emits a compact one-line-header + one-rect-per-line format.
+//
+// Header: space-separated key=value pairs covering every JSON metadata field.
+// Rects:  "x0,y0,x1,y1\t<text>" — tabs/newlines inside text are replaced with a
+// single space so each rect stays on exactly one line. The schema and key set
+// match the JSON output so consumers can map fields 1:1.
+func writePlain(w io.Writer, p output) error {
+	if _, err := fmt.Fprintf(w,
+		"pdf=%s page=%d bbox=%s dpi=%d page_pt=%sx%s image_px=%dx%d rotation=%d text_layer=%t\n",
+		p.PDFPath,
+		p.Page,
+		fmtBbox(p.Bbox),
+		p.DPI,
+		fmtFloat(p.PageSizePt.Width), fmtFloat(p.PageSizePt.Height),
+		p.ImageSize.Width, p.ImageSize.Height,
+		p.PageRotation,
+		p.HasTextLayer,
+	); err != nil {
+		return err
+	}
+	for _, r := range p.Rects {
+		if _, err := fmt.Fprintf(w, "%s\t%s\n", fmtBbox(r.Bbox), sanitizePlainText(r.Text)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func fmtBbox(b [4]float64) string {
+	return fmtFloat(b[0]) + "," + fmtFloat(b[1]) + "," + fmtFloat(b[2]) + "," + fmtFloat(b[3])
+}
+
+func fmtFloat(v float64) string {
+	return strconv.FormatFloat(v, 'f', -1, 64)
+}
+
+func sanitizePlainText(s string) string {
+	r := strings.NewReplacer("\t", " ", "\r\n", " ", "\n", " ", "\r", " ")
+	return r.Replace(s)
 }
 
 func buildOutput(pdfPath string, page, dpi int, res *pdfx.Result) output {

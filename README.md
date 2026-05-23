@@ -51,7 +51,8 @@ pdf-zoom --page N [--bbox x0,y0,x1,y1] [flags] <pdf-path>
 | `--bbox`         | `0,0,1,1`     | Region as `x0,y0,x1,y1` normalized to page (bottom-left origin), `x0<x1` and `y0<y1`. Default = full page. |
 | `--dpi`          | `300`         | Render DPI for the cropped image.                                          |
 | `--output-image` | `./zoom.png`  | PNG output path.                                                           |
-| `--output-text`  | `-` (stdout)  | Text JSON output path; `-` means stdout.                                   |
+| `--output-text`  | `-` (stdout)  | Text output path; `-` means stdout.                                        |
+| `--plain`        | `false`       | Emit text output as a compact plain format instead of JSON (see below).    |
 
 Examples:
 
@@ -104,6 +105,27 @@ enclosing rectangle in normalized page coordinates.
 
 For scanned PDFs (no text layer) you get `has_text_layer: false` and an empty
 `rects` array; consume the image only.
+
+## Plain output format (`--plain`)
+
+`--plain` emits the same information as the JSON above, but in a compact
+line-oriented form designed for low token cost when feeding text into an LLM.
+
+```
+pdf=<path> page=<n> bbox=<x0,y0,x1,y1> dpi=<n> page_pt=<W>x<H> image_px=<W>x<H> rotation=<0|90|180|270> text_layer=<true|false>
+<x0,y0,x1,y1>\t<text>
+<x0,y0,x1,y1>\t<text>
+...
+```
+
+- Line 1 is the header: space-separated `key=value` pairs, one per JSON
+  metadata field.
+- Each subsequent line is one rect: bbox and text separated by a single tab.
+- Bbox values are the same 5-significant-digit-rounded normalized coordinates
+  used in JSON output.
+- Tabs / newlines inside `text` are replaced with a single space so each rect
+  stays on exactly one line.
+- For scanned PDFs (no text layer) only the header line is emitted.
 
 ## Project layout
 
