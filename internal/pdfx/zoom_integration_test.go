@@ -147,6 +147,63 @@ func TestZoomPageIndexing(t *testing.T) {
 	}
 }
 
+// Chars on a line that extend past the requested bbox should be dropped at
+// the character level — not the whole rect kept the way the old line-level
+// filter did. We isolate the "Chapter One: Introduction" heading with a
+// narrow y-band, then clip it on the right at x=0.3:
+//   - narrow text must be a strict prefix of the full heading (i.e. only the
+//     trailing chars outside the bbox got dropped)
+//   - narrow rect right edge must be < full rect right edge (proves cropping)
+//   - narrow right edge must sit between 0.3 and ~one char-width past it
+//     (overlap criterion: the char straddling x=0.3 is kept, not dropped)
+func TestZoomCharLevelBboxCrop(t *testing.T) {
+	pdf := loadSamplePDF(t)
+
+	const yLo, yHi = 0.895, 0.925 // y-band around the Chapter One heading
+	full, err := Zoom(Options{PDFData: pdf, Page: 0, Bbox: [4]float64{0, yLo, 1, yHi}, DPI: 100})
+	if err != nil {
+		t.Fatalf("full Zoom: %v", err)
+	}
+	narrow, err := Zoom(Options{PDFData: pdf, Page: 0, Bbox: [4]float64{0, yLo, 0.3, yHi}, DPI: 100})
+	if err != nil {
+		t.Fatalf("narrow Zoom: %v", err)
+	}
+
+	if len(full.Rects) != 1 {
+		t.Fatalf("y-band should isolate exactly the heading rect, got %d rects", len(full.Rects))
+	}
+	fullText := strings.TrimSpace(full.Rects[0].Text)
+	if fullText != "Chapter One: Introduction" {
+		t.Fatalf("y-band should isolate the heading; got %q", fullText)
+	}
+
+	if len(narrow.Rects) != 1 {
+		t.Fatalf("narrow bbox still overlaps the heading; expected 1 rect, got %d", len(narrow.Rects))
+	}
+	narrowText := strings.TrimSpace(narrow.Rects[0].Text)
+	if narrowText == fullText {
+		t.Errorf("narrow bbox should crop the heading at char level, got full text %q", narrowText)
+	}
+	if !strings.HasPrefix(fullText, narrowText) || narrowText == "" {
+		t.Errorf("narrow text %q should be a non-empty prefix of full %q", narrowText, fullText)
+	}
+
+	fullRight := full.Rects[0].Bbox[2]
+	narrowRight := narrow.Rects[0].Bbox[2]
+	if narrowRight >= fullRight {
+		t.Errorf("narrow right edge %.5f should be < full right edge %.5f", narrowRight, fullRight)
+	}
+	// Overlap (not center-in / fully-contained): the char straddling x=0.3
+	// is preserved, so the rect right edge sits a hair past 0.3 — but not by
+	// more than one char-width.
+	if narrowRight < 0.3 {
+		t.Errorf("narrow right edge %.5f should reach the bbox edge under overlap criterion", narrowRight)
+	}
+	if narrowRight > 0.35 {
+		t.Errorf("narrow right edge %.5f overshoots bbox right (0.3) by more than one char-width", narrowRight)
+	}
+}
+
 func TestZoomInvalidPage(t *testing.T) {
 	pdf := loadSamplePDF(t)
 	_, err := Zoom(Options{PDFData: pdf, Page: 9999, Bbox: [4]float64{0, 0, 1, 1}, DPI: 100})
