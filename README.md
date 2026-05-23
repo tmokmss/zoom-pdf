@@ -36,10 +36,9 @@ The `pdfium.wasm` binary and the wazero runtime are embedded into the resulting
 Go binary — no external assets to ship. The Linux binary is statically linked
 (no libc dependency).
 
-`make test` drives the CLI end-to-end against `testdata/sample.pdf` (a small
-generated, born-digital PDF with placeholder text) with three success cases
-and three error cases, writing artifacts into `testout/`. Regenerate the
-sample with `python3 testdata/gen_sample.py` (requires `reportlab`).
+`make test` drives the CLI end-to-end against `testdata/sample.pdf` (a small,
+born-digital PDF with placeholder Lorem-ipsum text) with three success cases
+and three error cases, writing artifacts into `testout/`.
 
 ## Usage
 
