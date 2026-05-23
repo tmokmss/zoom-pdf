@@ -1,3 +1,4 @@
 *.pdf
 bin/
 testout/
+.claude/worktrees/
