@@ -1,5 +1,5 @@
 // Package pdfx wraps go-pdfium (webassembly mode) with the operations needed
-// for the pdf-zoom CLI: render a page region to a PNG-ready image and extract
+// for the zoom-pdf CLI: render a page region to a PNG-ready image and extract
 // the text-layer rects that fall inside that region.
 //
 // Coordinate conventions (bbox is normalized [0,1] floats):

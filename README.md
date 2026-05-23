@@ -1,4 +1,4 @@
-# pdf-zoom
+# zoom-pdf
 
 A small CLI that renders a rectangular region of a PDF page at high DPI and emits
 the text-layer rects (≈ line-level fragments) that fall inside that region.
@@ -14,8 +14,8 @@ mode** — no CGO, no dynamic libraries, single static binary.
 Use the Makefile:
 
 ```bash
-make build          # native binary       -> bin/pdf-zoom
-make build-linux    # linux/amd64         -> bin/pdf-zoom-linux-amd64
+make build          # native binary       -> bin/zoom-pdf
+make build-linux    # linux/amd64         -> bin/zoom-pdf-linux-amd64
 make build-all      # both
 make test           # integration tests against sample.pdf
 make clean
@@ -24,12 +24,12 @@ make clean
 Or directly:
 
 ```bash
-go build -ldflags="-s -w" -o bin/pdf-zoom ./cmd/pdf-zoom
+go build -ldflags="-s -w" -o bin/zoom-pdf ./cmd/zoom-pdf
 
 GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build \
   -ldflags="-s -w" \
-  -o bin/pdf-zoom-linux-amd64 \
-  ./cmd/pdf-zoom
+  -o bin/zoom-pdf-linux-amd64 \
+  ./cmd/zoom-pdf
 ```
 
 The `pdfium.wasm` binary and the wazero runtime are embedded into the resulting
@@ -42,7 +42,7 @@ cases and three error cases, writing artifacts into `testout/`.
 ## Usage
 
 ```
-pdf-zoom --page N [--bbox x0,y0,x1,y1] [flags] <pdf-path>
+zoom-pdf --page N [--bbox x0,y0,x1,y1] [flags] <pdf-path>
 ```
 
 | Flag             | Default       | Description                                                                |
@@ -58,13 +58,13 @@ Examples:
 
 ```bash
 # whole page
-./bin/pdf-zoom --page 0 sample.pdf
+./bin/zoom-pdf --page 0 sample.pdf
 
 # top half
-./bin/pdf-zoom --page 0 --bbox 0,0.5,1,1 sample.pdf
+./bin/zoom-pdf --page 0 --bbox 0,0.5,1,1 sample.pdf
 
 # center quarter
-./bin/pdf-zoom --page 0 --bbox 0.25,0.25,0.75,0.75 --dpi 200 \
+./bin/zoom-pdf --page 0 --bbox 0.25,0.25,0.75,0.75 --dpi 200 \
   --output-image /tmp/zoom.png \
   --output-text /tmp/zoom.json \
   sample.pdf
@@ -130,8 +130,8 @@ pdf=<path> page=<n> bbox=<x0,y0,x1,y1> dpi=<n> page_pt=<W>x<H> image_px=<W>x<H> 
 ## Project layout
 
 ```
-pdf-zoom-cli/
-├── cmd/pdf-zoom/main.go    # CLI entry, flag parsing, JSON output
+zoom-pdf/
+├── cmd/zoom-pdf/main.go    # CLI entry, flag parsing, JSON output
 ├── internal/pdfx/pdfx.go   # go-pdfium wrapper: render + rect extraction
 ├── go.mod
 └── README.md

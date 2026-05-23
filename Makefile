@@ -1,17 +1,17 @@
-# pdf-zoom build & test targets.
+# zoom-pdf build & test targets.
 #
-#   make build         # native binary -> bin/pdf-zoom
-#   make build-linux   # linux/amd64    -> bin/pdf-zoom-linux-amd64
+#   make build         # native binary -> bin/zoom-pdf
+#   make build-linux   # linux/amd64    -> bin/zoom-pdf-linux-amd64
 #   make build-all     # both of the above
 #   make test          # run the binary against sample.pdf with a few bboxes
 #   make clean         # remove bin/ and test outputs
 
 BIN_DIR    := bin
-BIN        := $(BIN_DIR)/pdf-zoom
-BIN_LINUX  := $(BIN_DIR)/pdf-zoom-linux-amd64
+BIN        := $(BIN_DIR)/zoom-pdf
+BIN_LINUX  := $(BIN_DIR)/zoom-pdf-linux-amd64
 
 LDFLAGS    := -s -w
-PKG        := ./cmd/pdf-zoom
+PKG        := ./cmd/zoom-pdf
 
 SAMPLE_PDF := sample.pdf
 TEST_DIR   := testout

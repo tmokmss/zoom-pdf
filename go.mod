@@ -1,4 +1,4 @@
-module github.com/tmokmss/pdf-zoom-cli
+module github.com/tmokmss/zoom-pdf
 
 go 1.26.3
 

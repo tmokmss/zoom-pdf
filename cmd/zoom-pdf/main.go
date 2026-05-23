@@ -1,4 +1,4 @@
-// pdf-zoom renders a rectangular region of a PDF page at high DPI and emits
+// zoom-pdf renders a rectangular region of a PDF page at high DPI and emits
 // the text-layer rects that fall inside that region.
 // The image is written as PNG; the text data is emitted as JSON.
 //
@@ -17,7 +17,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/tmokmss/pdf-zoom-cli/internal/pdfx"
+	"github.com/tmokmss/zoom-pdf/internal/pdfx"
 )
 
 type imageSize struct {
@@ -57,7 +57,7 @@ func main() {
 		plain    = flag.Bool("plain", false, "Emit text output as a compact plain format (one header line + one rect per line) instead of JSON.")
 	)
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage: pdf-zoom --page N [--bbox x0,y0,x1,y1] [flags] <pdf-path>\n\n")
+		fmt.Fprintf(os.Stderr, "usage: zoom-pdf --page N [--bbox x0,y0,x1,y1] [flags] <pdf-path>\n\n")
 		fmt.Fprintf(os.Stderr, "bbox values are normalized [0,1] in PDF page space (bottom-left origin).\n")
 		fmt.Fprintf(os.Stderr, "e.g. --bbox 0,0.5,1,1 = top half of the page.\n\n")
 		flag.PrintDefaults()
@@ -229,6 +229,6 @@ func roundSig(v float64, sig int) float64 {
 }
 
 func die(msg string) {
-	fmt.Fprintln(os.Stderr, "pdf-zoom: "+msg)
+	fmt.Fprintln(os.Stderr, "zoom-pdf: "+msg)
 	os.Exit(1)
 }

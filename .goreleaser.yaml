@@ -1,15 +1,15 @@
 version: 2
 
-project_name: pdf-zoom
+project_name: zoom-pdf
 
 before:
   hooks:
     - go mod tidy
 
 builds:
-  - id: pdf-zoom
-    main: ./cmd/pdf-zoom
-    binary: pdf-zoom
+  - id: zoom-pdf
+    main: ./cmd/zoom-pdf
+    binary: zoom-pdf
     env:
       - CGO_ENABLED=0
     goos:
