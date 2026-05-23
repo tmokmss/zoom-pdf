@@ -57,6 +57,14 @@ func TestZoomFullPage(t *testing.T) {
 		}
 	}
 
+	// Concatenated text should contain known content from the generated PDF.
+	joined := joinRectText(res.Rects)
+	for _, want := range []string{"Chapter One", "Lorem ipsum"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("expected extracted text to contain %q, got: %q", want, joined)
+		}
+	}
+
 	// Image dimensions should roughly match page_size * dpi/72.
 	scale := 150.0 / 72.0
 	expectedW := int(res.PageWidthPt * scale)
@@ -114,12 +122,45 @@ func TestZoomBboxNormalizedRange(t *testing.T) {
 	}
 }
 
+// Each page in the generated PDF starts with a distinct chapter heading,
+// so we can sanity-check that Page indexing actually selects the right page.
+func TestZoomPageIndexing(t *testing.T) {
+	pdf := loadSamplePDF(t)
+	cases := []struct {
+		page int
+		want string
+	}{
+		{0, "Chapter One"},
+		{1, "Chapter Two"},
+		{2, "Chapter Three"},
+	}
+	for _, tc := range cases {
+		res, err := Zoom(Options{PDFData: pdf, Page: tc.page, Bbox: [4]float64{0, 0, 1, 1}, DPI: 100})
+		if err != nil {
+			t.Errorf("page %d: Zoom: %v", tc.page, err)
+			continue
+		}
+		joined := joinRectText(res.Rects)
+		if !strings.Contains(joined, tc.want) {
+			t.Errorf("page %d: expected text to contain %q, got: %q", tc.page, tc.want, joined)
+		}
+	}
+}
+
 func TestZoomInvalidPage(t *testing.T) {
 	pdf := loadSamplePDF(t)
 	_, err := Zoom(Options{PDFData: pdf, Page: 9999, Bbox: [4]float64{0, 0, 1, 1}, DPI: 100})
 	if err == nil {
 		t.Error("expected error for out-of-range page, got nil")
 	}
+}
+
+func joinRectText(rects []Rect) string {
+	parts := make([]string, len(rects))
+	for i, r := range rects {
+		parts[i] = r.Text
+	}
+	return strings.Join(parts, " ")
 }
 
 func abs(x int) int {
