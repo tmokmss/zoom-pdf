@@ -13,7 +13,7 @@ BIN_LINUX  := $(BIN_DIR)/zoom-pdf-linux-amd64
 LDFLAGS    := -s -w
 PKG        := ./cmd/zoom-pdf
 
-SAMPLE_PDF := sample.pdf
+SAMPLE_PDF := testdata/sample.pdf
 TEST_DIR   := testout
 
 .PHONY: build build-linux build-all test test-unit test-integration test-cli clean help

@@ -1,11 +1,10 @@
 //go:build integration
 
-// Integration tests that actually drive pdfium against sample.pdf.
+// Integration tests that actually drive pdfium against testdata/sample.pdf.
 // Run with: go test -tags=integration ./...
 //
-// These are kept out of the default `go test ./...` run because:
-//   1. They require sample.pdf to be present at the repo root.
-//   2. They spin up the wasm runtime (a few seconds per Zoom call).
+// These are kept out of the default `go test ./...` run because they spin
+// up the wasm runtime (a few seconds per Zoom call).
 package pdfx
 
 import (
@@ -15,16 +14,16 @@ import (
 	"testing"
 )
 
-// sample.pdf lives at the repo root (../../sample.pdf relative to this file).
+// sample.pdf lives at testdata/sample.pdf (../../testdata/sample.pdf relative to this file).
 func loadSamplePDF(t *testing.T) []byte {
 	t.Helper()
-	path, err := filepath.Abs("../../sample.pdf")
+	path, err := filepath.Abs("../../testdata/sample.pdf")
 	if err != nil {
 		t.Fatalf("resolve sample.pdf path: %v", err)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		t.Skipf("sample.pdf not available at %s: %v", path, err)
+		t.Skipf("testdata/sample.pdf not available at %s: %v", path, err)
 	}
 	return data
 }
@@ -45,7 +44,7 @@ func TestZoomFullPage(t *testing.T) {
 		t.Errorf("page size should be positive, got %vx%v", res.PageWidthPt, res.PageHeightPt)
 	}
 	if !res.HasTextLayer {
-		t.Error("sample.pdf is born-digital — expected has_text_layer = true")
+		t.Error("testdata/sample.pdf is born-digital — expected has_text_layer = true")
 	}
 	if len(res.Rects) == 0 {
 		t.Error("expected some rects in a full-page extraction")
@@ -84,7 +83,7 @@ func TestZoomSubregionShrinksCounts(t *testing.T) {
 		t.Errorf("subregion rects (%d) should be < full rects (%d)", len(sub.Rects), len(full.Rects))
 	}
 	if len(sub.Rects) == 0 {
-		t.Error("center quarter of sample.pdf should still have some rects")
+		t.Error("center quarter of testdata/sample.pdf should still have some rects")
 	}
 
 	// Subregion image must be smaller than full image.

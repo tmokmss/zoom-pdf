@@ -17,7 +17,7 @@ Use the Makefile:
 make build          # native binary       -> bin/zoom-pdf
 make build-linux    # linux/amd64         -> bin/zoom-pdf-linux-amd64
 make build-all      # both
-make test           # integration tests against sample.pdf
+make test           # integration tests against testdata/sample.pdf
 make clean
 ```
 
@@ -36,8 +36,10 @@ The `pdfium.wasm` binary and the wazero runtime are embedded into the resulting
 Go binary — no external assets to ship. The Linux binary is statically linked
 (no libc dependency).
 
-`make test` drives the CLI end-to-end against `sample.pdf` with three success
-cases and three error cases, writing artifacts into `testout/`.
+`make test` drives the CLI end-to-end against `testdata/sample.pdf` (a small
+generated, born-digital PDF with placeholder text) with three success cases
+and three error cases, writing artifacts into `testout/`. Regenerate the
+sample with `python3 testdata/gen_sample.py` (requires `reportlab`).
 
 ## Usage
 
