@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"image/png"
 	"io"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -156,19 +157,19 @@ func buildOutput(pdfPath string, page, dpi int, res *pdfx.Result) output {
 	chars := make([]charJSON, len(res.Chars))
 	for i, c := range res.Chars {
 		chars[i] = charJSON{
-			Text: c.Text, Bbox: c.Bbox,
+			Text: c.Text, Bbox: roundBbox(c.Bbox),
 			FontName: c.FontName, FontSize: c.FontSize, IsVertical: c.IsVertical,
 		}
 	}
 	rects := make([]rectJSON, len(res.Rects))
 	for i, r := range res.Rects {
-		rects[i] = rectJSON{Text: r.Text, Bbox: r.Bbox}
+		rects[i] = rectJSON{Text: r.Text, Bbox: roundBbox(r.Bbox)}
 	}
 	b := res.Image.Bounds()
 	return output{
 		PDFPath:      pdfPath,
 		Page:         page,
-		Bbox:         res.BboxClipped,
+		Bbox:         roundBbox(res.BboxClipped),
 		DPI:          dpi,
 		PageSizePt:   pageSizePt{Width: res.PageWidthPt, Height: res.PageHeightPt},
 		ImageSize:    imageSize{Width: b.Dx(), Height: b.Dy()},
@@ -177,6 +178,26 @@ func buildOutput(pdfPath string, page, dpi int, res *pdfx.Result) output {
 		Rects:        rects,
 		Chars:        chars,
 	}
+}
+
+// roundBbox rounds each component to 5 significant digits to keep JSON output
+// compact. Go's float-to-JSON encoder uses shortest-round-trip, so a value
+// rounded to 5 sig digits typically encodes as ≤7 chars.
+func roundBbox(b [4]float64) [4]float64 {
+	var out [4]float64
+	for i, v := range b {
+		out[i] = roundSig(v, 5)
+	}
+	return out
+}
+
+func roundSig(v float64, sig int) float64 {
+	if v == 0 || math.IsNaN(v) || math.IsInf(v, 0) {
+		return v
+	}
+	mag := math.Floor(math.Log10(math.Abs(v)))
+	factor := math.Pow(10, float64(sig-1)-mag)
+	return math.Round(v*factor) / factor
 }
 
 func die(msg string) {
