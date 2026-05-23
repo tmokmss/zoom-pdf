@@ -70,14 +70,11 @@ Examples:
 
 ## Coordinate conventions
 
-All bboxes — input `--bbox`, output `bbox_pdf`, output `bbox_image` — are
-**normalized to [0,1]**.
+All bboxes — input `--bbox` and output `bbox` — are **normalized to [0,1]** in
+**PDF page space**, **bottom-left origin**. `(0,0)` = bottom-left of page,
+`(1,1)` = top-right.
 
-- **`bbox_pdf`**: PDF page space, **bottom-left origin**. `(0,0)` = bottom-left of page, `(1,1)` = top-right.
-- **`bbox_image`**: image space of the cropped output, **top-left origin**, relative to the crop. `(0,0)` = top-left of crop, `(1,1)` = bottom-right. Values may fall slightly outside `[0,1]` when a char/rect straddles the crop boundary.
-
-To convert to pixels / points, multiply by the `image_size` / `page_size_pt`
-returned in the JSON.
+To convert to points, multiply by the `page_size_pt` returned in the JSON.
 
 ## Output JSON schema
 
@@ -85,7 +82,7 @@ returned in the JSON.
 {
   "pdf_path": "sample.pdf",
   "page": 0,
-  "bbox_pdf":     [0.25, 0.25, 0.75, 0.75],   // requested bbox, clipped to page
+  "bbox":         [0.25, 0.25, 0.75, 0.75],   // requested bbox, clipped to page
   "dpi": 200,
   "page_size_pt": { "width": 595.0, "height": 842.0 },
   "image_size":   { "width": 833, "height": 833 },
@@ -94,15 +91,13 @@ returned in the JSON.
   "rects": [                                  // PDFium-grouped text runs (≈ line fragments)
     {
       "text": "Hello world",
-      "bbox_pdf":   [0.18, 0.78, 0.42, 0.81],
-      "bbox_image": [0.31, 0.27, 0.79, 0.32]
+      "bbox": [0.18, 0.78, 0.42, 0.81]
     }
   ],
   "chars": [                                  // per-character details
     {
       "text": "あ",
-      "bbox_pdf":   [0.176, 0.792, 0.195, 0.810],
-      "bbox_image": [0.312, 0.243, 0.350, 0.281],
+      "bbox": [0.176, 0.792, 0.195, 0.810],
       "font_name": "MS-Mincho",               // optional; empty if unavailable
       "font_size": 10.5,                      // points; 0 if unavailable
       "is_vertical": false                    // heuristic from per-char angle

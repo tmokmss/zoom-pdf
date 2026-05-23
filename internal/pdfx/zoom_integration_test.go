@@ -105,17 +105,17 @@ func TestZoomBboxNormalizedRange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Zoom: %v", err)
 	}
-	// bbox_pdf values returned to the caller should be in [0,1].
+	// bbox values returned to the caller should be in [0,1].
 	for i, v := range res.BboxClipped {
 		if v < 0 || v > 1 {
 			t.Errorf("BboxClipped[%d] = %v outside [0,1]", i, v)
 		}
 	}
-	// Per-char bbox_pdf should also be in [0,1] (chars live on the page).
+	// Per-char bbox should also be in [0,1] (chars live on the page).
 	for i, c := range res.Chars {
-		for j, v := range c.BboxPDF {
+		for j, v := range c.Bbox {
 			if v < -0.001 || v > 1.001 {
-				t.Errorf("char[%d].BboxPDF[%d] = %v outside [0,1]", i, j, v)
+				t.Errorf("char[%d].Bbox[%d] = %v outside [0,1]", i, j, v)
 			}
 		}
 	}

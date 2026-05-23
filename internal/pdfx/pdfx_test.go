@@ -119,41 +119,6 @@ func TestBboxPointsToImageRect(t *testing.T) {
 	}
 }
 
-func TestPdfBoxToNormImage(t *testing.T) {
-	// A 100x100 pt page, scale=1 (so image is 100x100 px).
-	// Crop is the full image: origin (0,0), size 100x100.
-	pageH := 100.0
-	scale := 1.0
-	cropOriginX, cropOriginY := 0, 0
-	cropW, cropH := 100.0, 100.0
-
-	// A char at PDF (10,90,20,100) — top-left area in PDF space (high y = top).
-	// In image space (top-left origin): x=10..20, y=0..10 (top).
-	// Normalized to 100x100 crop: (0.1, 0, 0.2, 0.1).
-	got := pdfBoxToNormImage(10, 90, 20, 100, pageH, scale, cropOriginX, cropOriginY, cropW, cropH)
-	want := [4]float64{0.1, 0.0, 0.2, 0.1}
-	if !approxEqualBox(got, want) {
-		t.Errorf("top char: got %v; want %v", got, want)
-	}
-
-	// A char at PDF (40,0,60,10) — bottom-center.
-	// Image space: x=40..60, y=90..100. Normalized: (0.4, 0.9, 0.6, 1.0).
-	got = pdfBoxToNormImage(40, 0, 60, 10, pageH, scale, cropOriginX, cropOriginY, cropW, cropH)
-	want = [4]float64{0.4, 0.9, 0.6, 1.0}
-	if !approxEqualBox(got, want) {
-		t.Errorf("bottom char: got %v; want %v", got, want)
-	}
-
-	// Same char but with a crop offset (cropOrigin=(40,40), cropSize=20x20).
-	// The char at (40,0,60,10) in image space x=40..60 y=90..100, minus origin (40,40) = (0,50,20,60).
-	// Normalized to 20x20 = (0, 2.5, 1.0, 3.0). (Char is outside crop -> >1.0, that's expected.)
-	got = pdfBoxToNormImage(40, 0, 60, 10, pageH, scale, 40, 40, 20, 20)
-	want = [4]float64{0.0, 2.5, 1.0, 3.0}
-	if !approxEqualBox(got, want) {
-		t.Errorf("offset crop: got %v; want %v", got, want)
-	}
-}
-
 func TestCopyRegion(t *testing.T) {
 	// Build a 4x4 RGBA where each pixel's R = x + y*10 (unique per pixel).
 	src := image.NewRGBA(image.Rect(0, 0, 4, 4))

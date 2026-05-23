@@ -2,13 +2,9 @@
 // for the pdf-zoom CLI: render a page region to a PNG-ready image and extract
 // the text-layer content (per-char and per-rect) that falls inside that region.
 //
-// Coordinate conventions (all bboxes are normalized [0,1] floats):
-//   - bbox_pdf:   PDF page space, bottom-left origin, normalized to page size.
-//                 (0,0) = bottom-left of page; (1,1) = top-right of page.
-//   - bbox_image: image space of the cropped output, top-left origin, normalized
-//                 to crop size. (0,0) = top-left of crop; (1,1) = bottom-right.
-//                 Values may fall outside [0,1] when a char/rect straddles the
-//                 crop boundary.
+// Coordinate conventions (bbox is normalized [0,1] floats):
+//   - bbox: PDF page space, bottom-left origin, normalized to page size.
+//           (0,0) = bottom-left of page; (1,1) = top-right of page.
 package pdfx
 
 import (
@@ -27,8 +23,7 @@ import (
 // All coordinates are normalized [0,1].
 type Char struct {
 	Text       string
-	BboxPDF    [4]float64 // left, bottom, right, top — normalized to page
-	BboxImage  [4]float64 // left, top, right, bottom — normalized to crop
+	Bbox       [4]float64 // left, bottom, right, top — normalized to page
 	FontName   string
 	FontSize   float64 // points
 	IsVertical bool
@@ -37,9 +32,8 @@ type Char struct {
 // Rect is one of PDFium's natural text-rectangle groupings (roughly: a
 // contiguous run of chars on the same line). All coordinates are normalized [0,1].
 type Rect struct {
-	Text      string
-	BboxPDF   [4]float64
-	BboxImage [4]float64
+	Text string
+	Bbox [4]float64
 }
 
 // Options configures Zoom. Bbox is normalized [0,1] in PDF page space
@@ -53,14 +47,14 @@ type Options struct {
 
 // Result is what Zoom produces.
 type Result struct {
-	Image          *image.RGBA // cropped image, top-left origin
-	PageWidthPt    float64     // page width in points
-	PageHeightPt   float64     // page height in points
-	PageRotation   int         // 0, 90, 180, or 270
-	HasTextLayer   bool
-	Chars          []Char
-	Rects          []Rect
-	BboxClipped    [4]float64 // normalized bbox after clipping to page
+	Image        *image.RGBA // cropped image, top-left origin
+	PageWidthPt  float64     // page width in points
+	PageHeightPt float64     // page height in points
+	PageRotation int         // 0, 90, 180, or 270
+	HasTextLayer bool
+	Chars        []Char
+	Rects        []Rect
+	BboxClipped  [4]float64 // normalized bbox after clipping to page
 }
 
 // Zoom opens the PDF, renders the requested region at the requested DPI, and
@@ -148,15 +142,12 @@ func Zoom(opts Options) (*Result, error) {
 	}
 	cropped := copyRegion(full, cropRect)
 
-	cropW := float64(cropRect.Dx())
-	cropH := float64(cropRect.Dy())
-
-	chars, hasText, err := extractCharsInBbox(inst, pageRef, bboxPt, pageW, pageH, scale, cropRect.Min.X, cropRect.Min.Y, cropW, cropH)
+	chars, hasText, err := extractCharsInBbox(inst, pageRef, bboxPt, pageW, pageH)
 	if err != nil {
 		return nil, fmt.Errorf("extract chars: %w", err)
 	}
 
-	rects, err := extractRectsInBbox(inst, pageRef, bboxPt, pageW, pageH, scale, cropRect.Min.X, cropRect.Min.Y, cropW, cropH)
+	rects, err := extractRectsInBbox(inst, pageRef, bboxPt, pageW, pageH)
 	if err != nil {
 		return nil, fmt.Errorf("extract rects: %w", err)
 	}
@@ -210,16 +201,6 @@ func bboxPointsToImageRect(bbox [4]float64, pageH, scale float64, imgBounds imag
 	return image.Rect(x0, yTop, x1, yBot).Intersect(imgBounds)
 }
 
-// pdfBoxToNormImage converts a points-space PDF bbox (left,bottom,right,top)
-// to a normalized image-space bbox (left,top,right,bottom in [0,1] of crop).
-func pdfBoxToNormImage(left, bottom, right, top, pageH, scale float64, cropOriginX, cropOriginY int, cropW, cropH float64) [4]float64 {
-	imgLeft := left*scale - float64(cropOriginX)
-	imgRight := right*scale - float64(cropOriginX)
-	imgTop := (pageH-top)*scale - float64(cropOriginY)
-	imgBottom := (pageH-bottom)*scale - float64(cropOriginY)
-	return [4]float64{imgLeft / cropW, imgTop / cropH, imgRight / cropW, imgBottom / cropH}
-}
-
 func copyRegion(src *image.RGBA, r image.Rectangle) *image.RGBA {
 	dst := image.NewRGBA(image.Rect(0, 0, r.Dx(), r.Dy()))
 	rowBytes := r.Dx() * 4
@@ -237,9 +218,7 @@ func extractCharsInBbox(
 	inst pdfium.Pdfium,
 	pageRef requests.Page,
 	bboxPt [4]float64,
-	pageW, pageH, scale float64,
-	cropOriginX, cropOriginY int,
-	cropW, cropH float64,
+	pageW, pageH float64,
 ) ([]Char, bool, error) {
 	tp, err := inst.FPDFText_LoadPage(&requests.FPDFText_LoadPage{Page: pageRef})
 	if err != nil {
@@ -291,8 +270,7 @@ func extractCharsInBbox(
 
 		chars = append(chars, Char{
 			Text:       string(r),
-			BboxPDF:    pointsToNorm([4]float64{left, bottom, right, top}, pageW, pageH),
-			BboxImage:  pdfBoxToNormImage(left, bottom, right, top, pageH, scale, cropOriginX, cropOriginY, cropW, cropH),
+			Bbox:       pointsToNorm([4]float64{left, bottom, right, top}, pageW, pageH),
 			FontName:   fontName,
 			FontSize:   fontSize,
 			IsVertical: math.Abs(float64(charAngle)) > 0.5,
@@ -308,9 +286,7 @@ func extractRectsInBbox(
 	inst pdfium.Pdfium,
 	pageRef requests.Page,
 	bboxPt [4]float64,
-	pageW, pageH, scale float64,
-	cropOriginX, cropOriginY int,
-	cropW, cropH float64,
+	pageW, pageH float64,
 ) ([]Rect, error) {
 	tp, err := inst.FPDFText_LoadPage(&requests.FPDFText_LoadPage{Page: pageRef})
 	if err != nil {
@@ -355,9 +331,8 @@ func extractRectsInBbox(
 		}
 
 		rects = append(rects, Rect{
-			Text:      bt.Text,
-			BboxPDF:   pointsToNorm([4]float64{left, bottom, right, top}, pageW, pageH),
-			BboxImage: pdfBoxToNormImage(left, bottom, right, top, pageH, scale, cropOriginX, cropOriginY, cropW, cropH),
+			Text: bt.Text,
+			Bbox: pointsToNorm([4]float64{left, bottom, right, top}, pageW, pageH),
 		})
 	}
 	return rects, nil
