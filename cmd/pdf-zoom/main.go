@@ -2,7 +2,8 @@
 // the text-layer content (per-char + per-rect) that falls inside that region.
 // The image is written as PNG; the text data is emitted as JSON.
 //
-// All bbox coordinates (input and output) are normalized [0,1]. See README.md.
+// All bbox coordinates (input and output) are normalized [0,1] in PDF page
+// space (bottom-left origin). See README.md.
 package main
 
 import (
@@ -30,23 +31,21 @@ type pageSizePt struct {
 
 type charJSON struct {
 	Text       string     `json:"text"`
-	BboxPDF    [4]float64 `json:"bbox_pdf"`
-	BboxImage  [4]float64 `json:"bbox_image"`
+	Bbox       [4]float64 `json:"bbox"`
 	FontName   string     `json:"font_name,omitempty"`
 	FontSize   float64    `json:"font_size,omitempty"`
 	IsVertical bool       `json:"is_vertical"`
 }
 
 type rectJSON struct {
-	Text      string     `json:"text"`
-	BboxPDF   [4]float64 `json:"bbox_pdf"`
-	BboxImage [4]float64 `json:"bbox_image"`
+	Text string     `json:"text"`
+	Bbox [4]float64 `json:"bbox"`
 }
 
 type output struct {
 	PDFPath      string     `json:"pdf_path"`
 	Page         int        `json:"page"`
-	BboxPDF      [4]float64 `json:"bbox_pdf"`
+	Bbox         [4]float64 `json:"bbox"`
 	DPI          int        `json:"dpi"`
 	PageSizePt   pageSizePt `json:"page_size_pt"`
 	ImageSize    imageSize  `json:"image_size"`
@@ -157,19 +156,19 @@ func buildOutput(pdfPath string, page, dpi int, res *pdfx.Result) output {
 	chars := make([]charJSON, len(res.Chars))
 	for i, c := range res.Chars {
 		chars[i] = charJSON{
-			Text: c.Text, BboxPDF: c.BboxPDF, BboxImage: c.BboxImage,
+			Text: c.Text, Bbox: c.Bbox,
 			FontName: c.FontName, FontSize: c.FontSize, IsVertical: c.IsVertical,
 		}
 	}
 	rects := make([]rectJSON, len(res.Rects))
 	for i, r := range res.Rects {
-		rects[i] = rectJSON{Text: r.Text, BboxPDF: r.BboxPDF, BboxImage: r.BboxImage}
+		rects[i] = rectJSON{Text: r.Text, Bbox: r.Bbox}
 	}
 	b := res.Image.Bounds()
 	return output{
 		PDFPath:      pdfPath,
 		Page:         page,
-		BboxPDF:      res.BboxClipped,
+		Bbox:         res.BboxClipped,
 		DPI:          dpi,
 		PageSizePt:   pageSizePt{Width: res.PageWidthPt, Height: res.PageHeightPt},
 		ImageSize:    imageSize{Width: b.Dx(), Height: b.Dy()},
