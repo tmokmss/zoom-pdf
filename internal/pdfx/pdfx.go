@@ -202,7 +202,6 @@ func copyRegion(src *image.RGBA, r image.Rectangle) *image.RGBA {
 // charInfo holds a single text-page character's position + unicode codepoint.
 // All coordinates are PDF page points (bottom-left origin).
 type charInfo struct {
-	index   int
 	left    float64
 	right   float64
 	bottom  float64
@@ -210,24 +209,17 @@ type charInfo struct {
 	unicode rune
 }
 
+func (c charInfo) box() [4]float64 {
+	return [4]float64{c.left, c.bottom, c.right, c.top}
+}
+
 // extractRectsInBbox returns the text-layer rects that overlap bboxPt.
 //
-// PDFium groups text into coarse rects (roughly one per contiguous line/run)
-// via FPDFText_CountRects/GetRect; we keep that grouping so output structure
-// matches PDFium's natural line layout. The catch is that a rect that merely
-// clips the bbox brings in all of its chars, including ones well outside the
-// region of interest. So we re-filter at the character level:
-//
-//  1. Enumerate every char on the page once via FPDFText_GetCharBox/GetUnicode.
-//  2. Pre-build an "in-bbox index" of char indices whose box overlaps bboxPt.
-//  3. For each rect that overlaps bboxPt, walk the in-bbox index and keep
-//     chars that also overlap that rect's box. The output bbox is the tight
-//     min/max of selected char boxes (not the original rect), and the text is
-//     selected chars concatenated in char-index order (PDFium stream order).
-//
-// Rects with zero surviving chars are dropped. Overlap (not center-in or
-// fully-contained) is the inclusion test, so any char that visibly clips into
-// the region is preserved.
+// PDFium's FPDFText_GetRect groups chars by line/run, but a rect that merely
+// clips the bbox would otherwise drag in chars well outside the region. We
+// keep PDFium's grouping but re-filter each rect at the character level
+// against the requested bbox; output bboxes are tightened to the surviving
+// chars' actual extents.
 //
 // The bool return is true when the PDF has a text layer at all (regardless of
 // whether any rect overlaps the bbox), so the caller can distinguish a
@@ -298,9 +290,24 @@ func extractRectsInBbox(
 
 // loadCharsAndIndex pulls every char's box + unicode from PDFium and returns
 // the full slice plus the indices of chars whose box overlaps bboxPt (the
-// "bbox index" reused for each rect). One FPDFText_GetCharBox + one
-// FPDFText_GetUnicode call per char — the dominant cost of extraction.
+// "bbox index" reused for each rect). One bulk FPDFText_GetText call covers
+// all unicodes; FPDFText_GetCharBox still costs one WASM round-trip per char
+// and dominates extraction time.
 func loadCharsAndIndex(inst pdfium.Pdfium, tp references.FPDF_TEXTPAGE, count int, bboxPt [4]float64) ([]charInfo, []int, error) {
+	txt, err := inst.FPDFText_GetText(&requests.FPDFText_GetText{
+		TextPage: tp, StartIndex: 0, Count: count,
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("get text: %w", err)
+	}
+	unicodes := []rune(txt.Text)
+	// PDFium reports one "char" per glyph including U+0000 placeholders;
+	// every PDF we care about is BMP-only so glyph count == rune count.
+	// Anything else is a go-pdfium contract change we want to know about.
+	if len(unicodes) != count {
+		return nil, nil, fmt.Errorf("FPDFText_GetText returned %d runes, expected %d", len(unicodes), count)
+	}
+
 	chars := make([]charInfo, 0, count)
 	var inBbox []int
 	for i := 0; i < count; i++ {
@@ -308,20 +315,15 @@ func loadCharsAndIndex(inst pdfium.Pdfium, tp references.FPDF_TEXTPAGE, count in
 		if err != nil {
 			return nil, nil, fmt.Errorf("get char box %d: %w", i, err)
 		}
-		uc, err := inst.FPDFText_GetUnicode(&requests.FPDFText_GetUnicode{TextPage: tp, Index: i})
-		if err != nil {
-			return nil, nil, fmt.Errorf("get unicode %d: %w", i, err)
-		}
 		c := charInfo{
-			index:   i,
 			left:    math.Min(cb.Left, cb.Right),
 			right:   math.Max(cb.Left, cb.Right),
 			bottom:  math.Min(cb.Top, cb.Bottom),
 			top:     math.Max(cb.Top, cb.Bottom),
-			unicode: rune(uc.Unicode),
+			unicode: unicodes[i],
 		}
 		chars = append(chars, c)
-		if boxesOverlap([4]float64{c.left, c.bottom, c.right, c.top}, bboxPt) {
+		if boxesOverlap(c.box(), bboxPt) {
 			inBbox = append(inBbox, i)
 		}
 	}
@@ -334,15 +336,14 @@ func loadCharsAndIndex(inst pdfium.Pdfium, tp references.FPDF_TEXTPAGE, count in
 func charsInRect(chars []charInfo, inBbox []int, rectBox [4]float64) (string, [4]float64, bool) {
 	var b strings.Builder
 	tight := [4]float64{math.Inf(1), math.Inf(1), math.Inf(-1), math.Inf(-1)}
-	any := false
 	for _, idx := range inBbox {
 		c := chars[idx]
-		if !boxesOverlap([4]float64{c.left, c.bottom, c.right, c.top}, rectBox) {
+		if !boxesOverlap(c.box(), rectBox) {
 			continue
 		}
-		// Unicode 0 means PDFium couldn't map the glyph; skip so we don't
-		// emit U+0000 in the output, but still let it influence the tight box
-		// if other selected chars exist on this rect.
+		// Unicode 0 means PDFium couldn't map the glyph; drop it from the
+		// text but still let its box influence `tight` so the rect bbox
+		// reflects the full visual extent of selected chars.
 		if c.unicode != 0 {
 			b.WriteRune(c.unicode)
 		}
@@ -358,9 +359,8 @@ func charsInRect(chars []charInfo, inBbox []int, rectBox [4]float64) (string, [4
 		if c.top > tight[3] {
 			tight[3] = c.top
 		}
-		any = true
 	}
-	if !any || b.Len() == 0 {
+	if b.Len() == 0 {
 		return "", tight, false
 	}
 	return b.String(), tight, true
