@@ -47,14 +47,8 @@ func TestZoomFullPage(t *testing.T) {
 	if !res.HasTextLayer {
 		t.Error("sample.pdf is born-digital — expected has_text_layer = true")
 	}
-	if len(res.Chars) == 0 {
-		t.Error("expected some chars in a full-page extraction")
-	}
 	if len(res.Rects) == 0 {
 		t.Error("expected some rects in a full-page extraction")
-	}
-	if len(res.Rects) > len(res.Chars) {
-		t.Errorf("rects (%d) shouldn't outnumber chars (%d)", len(res.Rects), len(res.Chars))
 	}
 
 	// All rect text should be non-empty.
@@ -86,11 +80,11 @@ func TestZoomSubregionShrinksCounts(t *testing.T) {
 		t.Fatalf("sub Zoom: %v", err)
 	}
 
-	if len(sub.Chars) >= len(full.Chars) {
-		t.Errorf("subregion chars (%d) should be < full chars (%d)", len(sub.Chars), len(full.Chars))
+	if len(sub.Rects) >= len(full.Rects) {
+		t.Errorf("subregion rects (%d) should be < full rects (%d)", len(sub.Rects), len(full.Rects))
 	}
-	if len(sub.Chars) == 0 {
-		t.Error("center quarter of sample.pdf should still have some chars")
+	if len(sub.Rects) == 0 {
+		t.Error("center quarter of sample.pdf should still have some rects")
 	}
 
 	// Subregion image must be smaller than full image.
@@ -111,11 +105,11 @@ func TestZoomBboxNormalizedRange(t *testing.T) {
 			t.Errorf("BboxClipped[%d] = %v outside [0,1]", i, v)
 		}
 	}
-	// Per-char bbox should also be in [0,1] (chars live on the page).
-	for i, c := range res.Chars {
-		for j, v := range c.Bbox {
+	// Per-rect bbox should also be in [0,1] (rects live on the page).
+	for i, r := range res.Rects {
+		for j, v := range r.Bbox {
 			if v < -0.001 || v > 1.001 {
-				t.Errorf("char[%d].Bbox[%d] = %v outside [0,1]", i, j, v)
+				t.Errorf("rect[%d].Bbox[%d] = %v outside [0,1]", i, j, v)
 			}
 		}
 	}

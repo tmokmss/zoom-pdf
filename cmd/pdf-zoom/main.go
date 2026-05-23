@@ -1,5 +1,5 @@
 // pdf-zoom renders a rectangular region of a PDF page at high DPI and emits
-// the text-layer content (per-char + per-rect) that falls inside that region.
+// the text-layer rects that fall inside that region.
 // The image is written as PNG; the text data is emitted as JSON.
 //
 // All bbox coordinates (input and output) are normalized [0,1] in PDF page
@@ -30,14 +30,6 @@ type pageSizePt struct {
 	Height float64 `json:"height"`
 }
 
-type charJSON struct {
-	Text       string     `json:"text"`
-	Bbox       [4]float64 `json:"bbox"`
-	FontName   string     `json:"font_name,omitempty"`
-	FontSize   float64    `json:"font_size,omitempty"`
-	IsVertical bool       `json:"is_vertical"`
-}
-
 type rectJSON struct {
 	Text string     `json:"text"`
 	Bbox [4]float64 `json:"bbox"`
@@ -53,7 +45,6 @@ type output struct {
 	PageRotation int        `json:"page_rotation"`
 	HasTextLayer bool       `json:"has_text_layer"`
 	Rects        []rectJSON `json:"rects"`
-	Chars        []charJSON `json:"chars"`
 }
 
 func main() {
@@ -154,13 +145,6 @@ func writeJSON(target string, payload output) error {
 }
 
 func buildOutput(pdfPath string, page, dpi int, res *pdfx.Result) output {
-	chars := make([]charJSON, len(res.Chars))
-	for i, c := range res.Chars {
-		chars[i] = charJSON{
-			Text: c.Text, Bbox: roundBbox(c.Bbox),
-			FontName: c.FontName, FontSize: c.FontSize, IsVertical: c.IsVertical,
-		}
-	}
 	rects := make([]rectJSON, len(res.Rects))
 	for i, r := range res.Rects {
 		rects[i] = rectJSON{Text: r.Text, Bbox: roundBbox(r.Bbox)}
@@ -176,7 +160,6 @@ func buildOutput(pdfPath string, page, dpi int, res *pdfx.Result) output {
 		PageRotation: res.PageRotation,
 		HasTextLayer: res.HasTextLayer,
 		Rects:        rects,
-		Chars:        chars,
 	}
 }
 

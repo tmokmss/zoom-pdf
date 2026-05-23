@@ -1,6 +1,6 @@
 // Package pdfx wraps go-pdfium (webassembly mode) with the operations needed
 // for the pdf-zoom CLI: render a page region to a PNG-ready image and extract
-// the text-layer content (per-char and per-rect) that falls inside that region.
+// the text-layer rects that fall inside that region.
 //
 // Coordinate conventions (bbox is normalized [0,1] floats):
 //   - bbox: PDF page space, bottom-left origin, normalized to page size.
@@ -18,16 +18,6 @@ import (
 	"github.com/klippa-app/go-pdfium/requests"
 	"github.com/klippa-app/go-pdfium/webassembly"
 )
-
-// Char is one character from the PDF text layer that overlaps the input bbox.
-// All coordinates are normalized [0,1].
-type Char struct {
-	Text       string
-	Bbox       [4]float64 // left, bottom, right, top — normalized to page
-	FontName   string
-	FontSize   float64 // points
-	IsVertical bool
-}
 
 // Rect is one of PDFium's natural text-rectangle groupings (roughly: a
 // contiguous run of chars on the same line). All coordinates are normalized [0,1].
@@ -52,7 +42,6 @@ type Result struct {
 	PageHeightPt float64     // page height in points
 	PageRotation int         // 0, 90, 180, or 270
 	HasTextLayer bool
-	Chars        []Char
 	Rects        []Rect
 	BboxClipped  [4]float64 // normalized bbox after clipping to page
 }
@@ -142,12 +131,7 @@ func Zoom(opts Options) (*Result, error) {
 	}
 	cropped := copyRegion(full, cropRect)
 
-	chars, hasText, err := extractCharsInBbox(inst, pageRef, bboxPt, pageW, pageH)
-	if err != nil {
-		return nil, fmt.Errorf("extract chars: %w", err)
-	}
-
-	rects, err := extractRectsInBbox(inst, pageRef, bboxPt, pageW, pageH)
+	rects, hasText, err := extractRectsInBbox(inst, pageRef, bboxPt, pageW, pageH)
 	if err != nil {
 		return nil, fmt.Errorf("extract rects: %w", err)
 	}
@@ -158,7 +142,6 @@ func Zoom(opts Options) (*Result, error) {
 		PageHeightPt: pageH,
 		PageRotation: int(rot.PageRotation) * 90,
 		HasTextLayer: hasText,
-		Chars:        chars,
 		Rects:        rects,
 		BboxClipped:  pointsToNorm(bboxPt, pageW, pageH),
 	}, nil
@@ -214,12 +197,18 @@ func copyRegion(src *image.RGBA, r image.Rectangle) *image.RGBA {
 
 // ---- text extraction ----
 
-func extractCharsInBbox(
+// extractRectsInBbox uses PDFium's FPDFText_CountRects/GetRect to get coarse
+// text groupings (roughly one rect per contiguous line/run), filters by overlap
+// with the input bbox, and reads each rect's text via FPDFText_GetBoundedText.
+// The bool return is true when the PDF has a text layer at all (regardless of
+// whether any rect overlaps the bbox), so the caller can distinguish a
+// scanned PDF from a born-digital one with text outside the requested region.
+func extractRectsInBbox(
 	inst pdfium.Pdfium,
 	pageRef requests.Page,
 	bboxPt [4]float64,
 	pageW, pageH float64,
-) ([]Char, bool, error) {
+) ([]Rect, bool, error) {
 	tp, err := inst.FPDFText_LoadPage(&requests.FPDFText_LoadPage{Page: pageRef})
 	if err != nil {
 		return nil, false, fmt.Errorf("load text page: %w", err)
@@ -230,78 +219,16 @@ func extractCharsInBbox(
 	if err != nil {
 		return nil, false, fmt.Errorf("count chars: %w", err)
 	}
-	if cc.Count <= 0 {
-		return nil, false, nil
-	}
-
-	var chars []Char
-	for i := 0; i < cc.Count; i++ {
-		box, err := inst.FPDFText_GetCharBox(&requests.FPDFText_GetCharBox{TextPage: tp.TextPage, Index: i})
-		if err != nil {
-			return nil, true, fmt.Errorf("get char box at %d: %w", i, err)
-		}
-		left, right := math.Min(box.Left, box.Right), math.Max(box.Left, box.Right)
-		bottom, top := math.Min(box.Bottom, box.Top), math.Max(box.Bottom, box.Top)
-		if right < bboxPt[0] || left > bboxPt[2] || top < bboxPt[1] || bottom > bboxPt[3] {
-			continue
-		}
-
-		uni, err := inst.FPDFText_GetUnicode(&requests.FPDFText_GetUnicode{TextPage: tp.TextPage, Index: i})
-		if err != nil {
-			return nil, true, fmt.Errorf("get unicode at %d: %w", i, err)
-		}
-		r := rune(uni.Unicode)
-		if r == 0 {
-			continue
-		}
-
-		var fontSize float64
-		if s, err := inst.FPDFText_GetFontSize(&requests.FPDFText_GetFontSize{TextPage: tp.TextPage, Index: i}); err == nil {
-			fontSize = s.FontSize
-		}
-		var fontName string
-		if f, err := inst.FPDFText_GetFontInfo(&requests.FPDFText_GetFontInfo{TextPage: tp.TextPage, Index: i}); err == nil {
-			fontName = f.FontName
-		}
-		var charAngle float32
-		if a, err := inst.FPDFText_GetCharAngle(&requests.FPDFText_GetCharAngle{TextPage: tp.TextPage, Index: i}); err == nil {
-			charAngle = a.CharAngle
-		}
-
-		chars = append(chars, Char{
-			Text:       string(r),
-			Bbox:       pointsToNorm([4]float64{left, bottom, right, top}, pageW, pageH),
-			FontName:   fontName,
-			FontSize:   fontSize,
-			IsVertical: math.Abs(float64(charAngle)) > 0.5,
-		})
-	}
-	return chars, true, nil
-}
-
-// extractRectsInBbox uses PDFium's FPDFText_CountRects/GetRect to get coarse
-// text groupings (roughly one rect per contiguous line/run), filters by overlap
-// with the input bbox, and reads each rect's text via FPDFText_GetBoundedText.
-func extractRectsInBbox(
-	inst pdfium.Pdfium,
-	pageRef requests.Page,
-	bboxPt [4]float64,
-	pageW, pageH float64,
-) ([]Rect, error) {
-	tp, err := inst.FPDFText_LoadPage(&requests.FPDFText_LoadPage{Page: pageRef})
-	if err != nil {
-		return nil, fmt.Errorf("load text page: %w", err)
-	}
-	defer inst.FPDFText_ClosePage(&requests.FPDFText_ClosePage{TextPage: tp.TextPage})
+	hasText := cc.Count > 0
 
 	cr, err := inst.FPDFText_CountRects(&requests.FPDFText_CountRects{
 		TextPage: tp.TextPage, StartIndex: 0, Count: -1,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("count rects: %w", err)
+		return nil, hasText, fmt.Errorf("count rects: %w", err)
 	}
 	if cr.Count <= 0 {
-		return nil, nil
+		return nil, hasText, nil
 	}
 
 	var rects []Rect
@@ -310,7 +237,7 @@ func extractRectsInBbox(
 			TextPage: tp.TextPage, Index: i,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("get rect %d: %w", i, err)
+			return nil, hasText, fmt.Errorf("get rect %d: %w", i, err)
 		}
 		// PDFium returns Top/Bottom in PDF space (Top > Bottom).
 		left, right := math.Min(rr.Left, rr.Right), math.Max(rr.Left, rr.Right)
@@ -327,7 +254,7 @@ func extractRectsInBbox(
 			Bottom:   bottom,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("get bounded text %d: %w", i, err)
+			return nil, hasText, fmt.Errorf("get bounded text %d: %w", i, err)
 		}
 
 		rects = append(rects, Rect{
@@ -335,5 +262,5 @@ func extractRectsInBbox(
 			Bbox: pointsToNorm([4]float64{left, bottom, right, top}, pageW, pageH),
 		})
 	}
-	return rects, nil
+	return rects, hasText, nil
 }
