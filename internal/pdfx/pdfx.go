@@ -12,9 +12,11 @@ import (
 	"image"
 	"io"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/klippa-app/go-pdfium"
+	"github.com/klippa-app/go-pdfium/references"
 	"github.com/klippa-app/go-pdfium/requests"
 	"github.com/klippa-app/go-pdfium/webassembly"
 )
@@ -197,9 +199,36 @@ func copyRegion(src *image.RGBA, r image.Rectangle) *image.RGBA {
 
 // ---- text extraction ----
 
-// extractRectsInBbox uses PDFium's FPDFText_CountRects/GetRect to get coarse
-// text groupings (roughly one rect per contiguous line/run), filters by overlap
-// with the input bbox, and reads each rect's text via FPDFText_GetBoundedText.
+// charInfo holds a single text-page character's position + unicode codepoint.
+// All coordinates are PDF page points (bottom-left origin).
+type charInfo struct {
+	index   int
+	left    float64
+	right   float64
+	bottom  float64
+	top     float64
+	unicode rune
+}
+
+// extractRectsInBbox returns the text-layer rects that overlap bboxPt.
+//
+// PDFium groups text into coarse rects (roughly one per contiguous line/run)
+// via FPDFText_CountRects/GetRect; we keep that grouping so output structure
+// matches PDFium's natural line layout. The catch is that a rect that merely
+// clips the bbox brings in all of its chars, including ones well outside the
+// region of interest. So we re-filter at the character level:
+//
+//  1. Enumerate every char on the page once via FPDFText_GetCharBox/GetUnicode.
+//  2. Pre-build an "in-bbox index" of char indices whose box overlaps bboxPt.
+//  3. For each rect that overlaps bboxPt, walk the in-bbox index and keep
+//     chars that also overlap that rect's box. The output bbox is the tight
+//     min/max of selected char boxes (not the original rect), and the text is
+//     selected chars concatenated in char-index order (PDFium stream order).
+//
+// Rects with zero surviving chars are dropped. Overlap (not center-in or
+// fully-contained) is the inclusion test, so any char that visibly clips into
+// the region is preserved.
+//
 // The bool return is true when the PDF has a text layer at all (regardless of
 // whether any rect overlaps the bbox), so the caller can distinguish a
 // scanned PDF from a born-digital one with text outside the requested region.
@@ -221,6 +250,11 @@ func extractRectsInBbox(
 	}
 	hasText := cc.Count > 0
 
+	chars, inBbox, err := loadCharsAndIndex(inst, tp.TextPage, cc.Count, bboxPt)
+	if err != nil {
+		return nil, hasText, err
+	}
+
 	cr, err := inst.FPDFText_CountRects(&requests.FPDFText_CountRects{
 		TextPage: tp.TextPage, StartIndex: 0, Count: -1,
 	})
@@ -240,27 +274,100 @@ func extractRectsInBbox(
 			return nil, hasText, fmt.Errorf("get rect %d: %w", i, err)
 		}
 		// PDFium returns Top/Bottom in PDF space (Top > Bottom).
-		left, right := math.Min(rr.Left, rr.Right), math.Max(rr.Left, rr.Right)
-		bottom, top := math.Min(rr.Top, rr.Bottom), math.Max(rr.Top, rr.Bottom)
-		if right < bboxPt[0] || left > bboxPt[2] || top < bboxPt[1] || bottom > bboxPt[3] {
+		rectBox := [4]float64{
+			math.Min(rr.Left, rr.Right),
+			math.Min(rr.Top, rr.Bottom),
+			math.Max(rr.Left, rr.Right),
+			math.Max(rr.Top, rr.Bottom),
+		}
+		if !boxesOverlap(rectBox, bboxPt) {
 			continue
 		}
 
-		bt, err := inst.FPDFText_GetBoundedText(&requests.FPDFText_GetBoundedText{
-			TextPage: tp.TextPage,
-			Left:     left,
-			Top:      top,
-			Right:    right,
-			Bottom:   bottom,
-		})
-		if err != nil {
-			return nil, hasText, fmt.Errorf("get bounded text %d: %w", i, err)
+		text, tight, ok := charsInRect(chars, inBbox, rectBox)
+		if !ok {
+			continue
 		}
-
 		rects = append(rects, Rect{
-			Text: bt.Text,
-			Bbox: pointsToNorm([4]float64{left, bottom, right, top}, pageW, pageH),
+			Text: text,
+			Bbox: pointsToNorm(tight, pageW, pageH),
 		})
 	}
 	return rects, hasText, nil
+}
+
+// loadCharsAndIndex pulls every char's box + unicode from PDFium and returns
+// the full slice plus the indices of chars whose box overlaps bboxPt (the
+// "bbox index" reused for each rect). One FPDFText_GetCharBox + one
+// FPDFText_GetUnicode call per char — the dominant cost of extraction.
+func loadCharsAndIndex(inst pdfium.Pdfium, tp references.FPDF_TEXTPAGE, count int, bboxPt [4]float64) ([]charInfo, []int, error) {
+	chars := make([]charInfo, 0, count)
+	var inBbox []int
+	for i := 0; i < count; i++ {
+		cb, err := inst.FPDFText_GetCharBox(&requests.FPDFText_GetCharBox{TextPage: tp, Index: i})
+		if err != nil {
+			return nil, nil, fmt.Errorf("get char box %d: %w", i, err)
+		}
+		uc, err := inst.FPDFText_GetUnicode(&requests.FPDFText_GetUnicode{TextPage: tp, Index: i})
+		if err != nil {
+			return nil, nil, fmt.Errorf("get unicode %d: %w", i, err)
+		}
+		c := charInfo{
+			index:   i,
+			left:    math.Min(cb.Left, cb.Right),
+			right:   math.Max(cb.Left, cb.Right),
+			bottom:  math.Min(cb.Top, cb.Bottom),
+			top:     math.Max(cb.Top, cb.Bottom),
+			unicode: rune(uc.Unicode),
+		}
+		chars = append(chars, c)
+		if boxesOverlap([4]float64{c.left, c.bottom, c.right, c.top}, bboxPt) {
+			inBbox = append(inBbox, i)
+		}
+	}
+	return chars, inBbox, nil
+}
+
+// charsInRect picks chars from the in-bbox index whose box also overlaps
+// rectBox, then returns the concatenated text (in char-index order) and the
+// tight min/max bbox of the selected chars. ok=false means no chars matched.
+func charsInRect(chars []charInfo, inBbox []int, rectBox [4]float64) (string, [4]float64, bool) {
+	var b strings.Builder
+	tight := [4]float64{math.Inf(1), math.Inf(1), math.Inf(-1), math.Inf(-1)}
+	any := false
+	for _, idx := range inBbox {
+		c := chars[idx]
+		if !boxesOverlap([4]float64{c.left, c.bottom, c.right, c.top}, rectBox) {
+			continue
+		}
+		// Unicode 0 means PDFium couldn't map the glyph; skip so we don't
+		// emit U+0000 in the output, but still let it influence the tight box
+		// if other selected chars exist on this rect.
+		if c.unicode != 0 {
+			b.WriteRune(c.unicode)
+		}
+		if c.left < tight[0] {
+			tight[0] = c.left
+		}
+		if c.bottom < tight[1] {
+			tight[1] = c.bottom
+		}
+		if c.right > tight[2] {
+			tight[2] = c.right
+		}
+		if c.top > tight[3] {
+			tight[3] = c.top
+		}
+		any = true
+	}
+	if !any || b.Len() == 0 {
+		return "", tight, false
+	}
+	return b.String(), tight, true
+}
+
+// boxesOverlap reports whether two AABBs in {x0,y0,x1,y1} form share any area
+// (touching edges count as overlap).
+func boxesOverlap(a, b [4]float64) bool {
+	return !(a[2] < b[0] || a[0] > b[2] || a[3] < b[1] || a[1] > b[3])
 }
