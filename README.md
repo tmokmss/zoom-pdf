@@ -1,9 +1,10 @@
 # pdf-zoom
 
 A small CLI that renders a rectangular region of a PDF page at high DPI and emits
-the text-layer characters that fall inside that region. Designed as a tool for
-VLM-based PDF reading: pair the cropped image with the structured text JSON so
-the model can cross-check what it visually sees against what the PDF encodes.
+the text-layer rects (≈ line-level fragments) that fall inside that region.
+Designed as a tool for VLM-based PDF reading: pair the cropped image with the
+structured text JSON so the model can cross-check what it visually sees against
+what the PDF encodes.
 
 Built on [go-pdfium](https://github.com/klippa-app/go-pdfium) in **WebAssembly
 mode** — no CGO, no dynamic libraries, single static binary.
@@ -93,35 +94,23 @@ To convert to points, multiply by the `page_size_pt` returned in the JSON.
       "text": "Hello world",
       "bbox": [0.18, 0.78, 0.42, 0.81]
     }
-  ],
-  "chars": [                                  // per-character details
-    {
-      "text": "あ",
-      "bbox": [0.176, 0.792, 0.195, 0.810],
-      "font_name": "MS-Mincho",               // optional; empty if unavailable
-      "font_size": 10.5,                      // points; 0 if unavailable
-      "is_vertical": false                    // heuristic from per-char angle
-    }
   ]
 }
 ```
 
-`rects` (coarse) is what PDFium emits via `FPDFText_GetRect` — roughly one
-entry per contiguous line/run. Best for VLM consumption: short, readable text
-fragments with a single bbox each.
+`rects` is what PDFium emits via `FPDFText_GetRect` — roughly one entry per
+contiguous line/run. Each entry's `text` is the joined string and `bbox` is the
+enclosing rectangle in normalized page coordinates.
 
-`chars` (fine) is the per-character view from `FPDFText_GetCharBox` — useful
-for debugging, font detection, or building your own grouping.
-
-For scanned PDFs (no text layer) you get `has_text_layer: false` and empty
-`rects` / `chars`; consume the image only.
+For scanned PDFs (no text layer) you get `has_text_layer: false` and an empty
+`rects` array; consume the image only.
 
 ## Project layout
 
 ```
 pdf-zoom-cli/
 ├── cmd/pdf-zoom/main.go    # CLI entry, flag parsing, JSON output
-├── internal/pdfx/pdfx.go   # go-pdfium wrapper: render + char extraction
+├── internal/pdfx/pdfx.go   # go-pdfium wrapper: render + rect extraction
 ├── go.mod
 └── README.md
 ```
@@ -132,8 +121,3 @@ pdf-zoom-cli/
   (so text appears upright), but the input `--bbox` is interpreted in the
   unrotated PDF coordinate space. On rotated pages the crop won't visually
   align with the bbox until rotation-aware coords are implemented.
-- **`is_vertical`** is a heuristic on PDFium's `FPDFText_GetCharAngle` (treats
-  `|angle| > ~30°` as vertical). Most horizontal CJK and Latin text reports
-  `false`; vertical writing reports `true`.
-- Font name/size/angle are best-effort per char; if PDFium can't determine
-  them, the fields are left empty rather than failing the whole extraction.

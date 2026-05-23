@@ -73,7 +73,7 @@ test-cli: build ## End-to-end smoke test of the CLI binary against sample.pdf
 	  printf "  %-30s %s\n" "$$f" "$$(du -h $$f | cut -f1)"; \
 	done
 	@for f in $(TEST_DIR)/*.json; do \
-	  python3 -c "import json,sys; d=json.load(open('$$f')); print(f'  {sys.argv[1]:<30} chars={len(d[\"chars\"])} rects={len(d[\"rects\"])}')" "$$f"; \
+	  python3 -c "import json,sys; d=json.load(open('$$f')); print(f'  {sys.argv[1]:<30} rects={len(d[\"rects\"])}')" "$$f"; \
 	done
 	@echo "OK"
 
